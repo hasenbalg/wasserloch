@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WiFi Settings - Garden Watering System</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>Garden Watering System</h1>
+            <nav>
+                <a href="/">Schedule</a>
+                <a href="/wifi" class="active">WiFi Settings</a>
+            </nav>
+            <div class="status-bar">
+                <span id="connection-status" class="status-connected">● Connected</span>
+                <span id="current-time"></span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Current WiFi Status -->
+        <section class="wifi-status">
+            <h2>Current WiFi Status</h2>
+            <div class="status-card">
+                <div class="status-item">
+                    <label>Mode:</label>
+                    <span id="wifi-mode-display">--</span>
+                </div>
+                <div class="status-item">
+                    <label>SSID:</label>
+                    <span id="wifi-ssid">--</span>
+                </div>
+                <div class="status-item">
+                    <label>IP Address:</label>
+                    <span id="wifi-ip">--</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- AP Mode Settings -->
+        <section class="wifi-section">
+            <h2>Access Point Mode</h2>
+            <p>When in AP mode, your Pi creates a WiFi network that devices can connect to for configuration.</p>
+            <div class="form-group">
+                <label for="ap-ssid">Network Name (SSID):</label>
+                <input type="text" id="ap-ssid" value="Garden-Watering" placeholder="Enter network name">
+            </div>
+            <div class="form-group">
+                <label for="ap-password">Password (min 8 characters):</label>
+                <input type="password" id="ap-password" value="watering123" placeholder="Enter password">
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="show-password"> Show password
+                </label>
+            </div>
+            <button onclick="updateAPCredentials()" class="btn-save">Update AP Credentials</button>
+            <button onclick="startAPMode()" class="btn-start">Start Access Point</button>
+        </section>
+
+        <!-- Connect to Existing Network -->
+        <section class="wifi-section">
+            <h2>Connect to Existing WiFi Network</h2>
+            <p>Connect to your home WiFi network for internet access and remote control.</p>
+            <div class="form-group">
+                <label for="station-ssid">Network Name (SSID):</label>
+                <input type="text" id="station-ssid" placeholder="Enter network name">
+            </div>
+            <div class="form-group">
+                <label for="station-password">Password:</label>
+                <input type="password" id="station-password" placeholder="Enter password">
+            </div>
+            <button onclick="connectToNetwork()" class="btn-connect">Connect</button>
+        </section>
+
+        <!-- Available Networks -->
+        <section class="wifi-section">
+            <h2>Available Networks</h2>
+            <button onclick="scanNetworks()" class="btn-scan">📡 Scan for Networks</button>
+            <div id="networks-list" class="networks-list">
+                <p class="empty-state">Click "Scan for Networks" to see available WiFi networks.</p>
+            </div>
+        </section>
+
+        <!-- Saved Networks -->
+        <section class="wifi-section">
+            <h2>Saved Networks</h2>
+            <div id="saved-networks" class="saved-networks">
+                <p class="empty-state">No saved networks.</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="/static/script.js"></script>
+    <script>
+        // WiFi-specific functions
+        async function updateAPCredentials() {
+            const ssid = document.getElementById('ap-ssid').value;
+            const password = document.getElementById('ap-password').value;
+
+            if (!ssid || !password) {
+                showToast('Please enter SSID and password', 'error');
+                return;
+            }
+
+            if (password.length < 8) {
+                showToast('Password must be at least 8 characters', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/wifi/credentials', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ssid, password })
+                });
+                const data = await response.json();
+                showToast(data.message, data.success ? 'success' : 'error');
+            } catch (error) {
+                showToast('Failed to update credentials: ' + error.message, 'error');
+            }
+        }
+
+        async function startAPMode() {
+            if (!confirm('This will start Access Point mode. Continue?')) return;
+
+            try {
+                const response = await fetch('/api/wifi/ap', { method: 'POST' });
+                const data = await response.json();
+                showToast(data.message, data.success ? 'success' : 'error');
+                if (data.success) {
+                    setTimeout(() => {
+                        window.location.href = 'http://192.168.4.1';
+                    }, 3000);
+                }
+            } catch (error) {
+                showToast('Failed to start AP: ' + error.message, 'error');
+            }
+        }
+
+        async function connectToNetwork() {
+            const ssid = document.getElementById('station-ssid').value;
+            const password = document.getElementById('station-password').value;
+
+            if (!ssid || !password) {
+                showToast('Please enter SSID and password', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/wifi/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ssid, password })
+                });
+                const data = await response.json();
+                showToast(data.message, data.success ? 'success' : 'error');
+                if (data.success) {
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 3000);
+                }
+            } catch (error) {
+                showToast('Failed to connect: ' + error.message, 'error');
+            }
+        }
+
+        async function scanNetworks() {
+            const list = document.getElementById('networks-list');
+            list.innerHTML = '<p class="loading">Scanning...</p>';
+
+            try {
+                const response = await fetch('/api/wifi/scan');
+                const data = await response.json();
+                
+                if (data.networks && data.networks.length > 0) {
+                    list.innerHTML = data.networks.map(net => `
+                        <div class="network-item" onclick="quickConnect('${net.ssid}', '')">
+                            <span class="network-ssid">${net.ssid}</span>
+                            <span class="network-signal">Signal: ${net.signal}%</span>
+                            <span class="network-security">${net.security || 'Open'}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    list.innerHTML = '<p class="empty-state">No networks found.</p>';
+                }
+            } catch (error) {
+                list.innerHTML = '<p class="error">Failed to scan: ' + error.message + '</p>';
+            }
+        }
+
+        async function quickConnect(ssid, password) {
+            const pw = password || prompt(`Enter password for ${ssid}:`);
+            if (!pw) return;
+
+            try {
+                const response = await fetch('/api/wifi/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ssid, password: pw })
+                });
+                const data = await response.json();
+                showToast(data.message, data.success ? 'success' : 'error');
+                if (data.success) {
+                    setTimeout(() => window.location.reload(), 3000);
+                }
+            } catch (error) {
+                showToast('Failed to connect: ' + error.message, 'error');
+            }
+        }
+
+        // Initialize WiFi settings page
+        document.addEventListener('DOMContentLoaded', function() {
+            loadWiFiStatus();
+            loadSavedNetworks();
+            updateTime();
+            setInterval(updateTime, 1000);
+            syncTime();
+
+            // Password visibility toggle
+            document.getElementById('show-password').addEventListener('change', function() {
+                const pwd = document.getElementById('ap-password');
+                pwd.type = this.checked ? 'text' : 'password';
+            });
+        });
+
+        async function loadWiFiStatus() {
+            try {
+                const response = await fetch('/api/wifi/status');
+                const data = await response.json();
+                
+                document.getElementById('wifi-mode-display').textContent = 
+                    data.mode === 'ap' ? '📡 Access Point' : '🌐 Station';
+                document.getElementById('wifi-ssid').textContent = data.ssid || 'Not connected';
+                document.getElementById('wifi-ip').textContent = data.ip || '--';
+            } catch (error) {
+                console.error('Failed to load WiFi status:', error);
+            }
+        }
+
+        async function loadSavedNetworks() {
+            try {
+                const response = await fetch('/api/wifi/status');
+                const data = await response.json();
+                const container = document.getElementById('saved-networks');
+                
+                if (data.saved_networks && data.saved_networks.length > 0) {
+                    container.innerHTML = data.saved_networks.map(net => `
+                        <div class="saved-network-item">
+                            <span class="network-ssid">${net}</span>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Failed to load saved networks:', error);
+            }
+        }
+    </script>
+</body>
+</html>
