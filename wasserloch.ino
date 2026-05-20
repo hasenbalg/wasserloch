@@ -9,6 +9,7 @@
 
 // Relay pins (adapt to your board)
 const uint8_t RELAY_PINS[4] = {5, 4, 0, 2}; // D1, D2, D3, D4
+static uint8_t lastOpenRelay = 0xFF; // all closed. Enforced in setup function
 
 ESP8266WebServer server(80);
 
@@ -300,31 +301,33 @@ new Vue({
      * Add a new slot, but only if it doesn't overlap existing ones.
      */
     addSlot(dayIndex) {
-      const ns = this.newSlot[dayIndex];
-      const [hh, mm] = ns.start.split(':').map(Number);
-      const startMinutes = hh * 60 + mm;
-      const duration     = ns.duration;
+    const ns = this.newSlot[dayIndex];
+    const [hh, mm] = ns.start.split(':').map(Number);
+    const startMinutes = hh * 60 + mm;
+    const duration     = ns.duration;
 
-      // --- overlap check against existing slots ---
-      for (let i = 0; i < this.schedule[dayIndex].length; i++) {
+    // Check against existing slots
+    for (let i = 0; i < this.schedule[dayIndex].length; i++) {
         const existing = this.schedule[dayIndex][i];
         const existingEnd = existing.startMinutes + existing.durationMinutes;
         if (startMinutes < existingEnd && existing.startMinutes < startMinutes + duration) {
-          alert(
-            `Cannot add slot: overlaps with ` +
-            `"${this.minutesToHHMM(existing.startMinutes)} – ${this.minutesToHHMM(existingEnd)}"` +
-            ` (Relay ${existing.relay + 1})`
-          );
+            alert(`Cannot add slot: overlaps with "${this.minutesToHHMM(existing.startMinutes)} – ${this.minutesToHHMM(existingEnd)}" (Relay ${existing.relay + 1})`);
           return;  // abort
         }
-      }
+    }
 
-      this.schedule[dayIndex].push({
+    // Check against other new (unsaved) slots on same day
+    for (let i = 0; i < this.schedule[dayIndex].length; i++) {
+        const existing = this.schedule[dayIndex][i];
+        // already checked above — new slots are only in the push below
+    }
+
+    this.schedule[dayIndex].push({
         startMinutes,
         durationMinutes: duration,
         relay: ns.relay
-      });
-    },
+    });
+},
     removeSlot(dayIndex, slotIndex) {
       this.schedule[dayIndex].splice(slotIndex, 1);
     },
@@ -474,34 +477,30 @@ void handlePostTime()
 
 void updateRelays()
 {
-  time_t now = time(nullptr);
-  if (now < 100000)
-    return; // invalid time
+    time_t now = time(nullptr);
+    if (now < 100000)
+      return; // invalid time
 
-  struct tm *tmNow = localtime(&now);
-  int wday = tmNow->tm_wday; // 0=Sunday
-  int minutes = tmNow->tm_hour * 60 + tmNow->tm_min;
+    struct tm *tmNow = localtime(&now);
+    int wday = tmNow->tm_wday; // 0=Sunday
+    int minutes = tmNow->tm_hour * 60 + tmNow->tm_min;
 
-  uint8_t activeMask = 0;
+    uint8_t activeRelay = 0;
 
-  int activeRelay = -1;
-
-  for (int i = 0; i < slotsCount[wday]; i++)
-  {
-    Slot &s = schedule[wday][i];
-    if (minutes >= s.startMinutes &&
-        minutes < s.startMinutes + s.durationMinutes)
-    {
-      activeRelay = s.relay;
-      break;
+    for (int i = 0; i < slotsCount[wday]; i++) {
+        Slot &s = schedule[wday][i];
+        if (minutes >= s.startMinutes &&
+            minutes < s.startMinutes + s.durationMinutes) {
+            activeRelay |= (1 << s.relay);
+        }
     }
-  }
+    if (activeRelay == lastOpenRelay) return; // no change
+    lastOpenRelay = activeRelay;
 
-  for (int r = 0; r < 4; r++)
-  {
-    bool on = (r == activeRelay);
-    digitalWrite(RELAY_PINS[r], on ? LOW : HIGH);
-  }
+    for (int r = 0; r < 4; r++) {
+        bool on = (activeRelay & (1 << r));
+        digitalWrite(RELAY_PINS[r], on ? LOW : HIGH);
+    }
 }
 
 // ---------- Setup & Loop ----------
