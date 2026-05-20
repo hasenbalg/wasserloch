@@ -185,7 +185,7 @@ void handleRoot()
         <div v-for="(slot, sIndex) in schedule[dIndex]" :key="sIndex" class="slot">
           <div>Start: {{ minutesToHHMM(slot.startMinutes) }},
                Duration: {{ slot.durationMinutes }} min,
-               Relays: {{ relayMaskToText(slot.relayMask) }}</div>
+               Relays: {{ relayToText(slot.relay) }}</div>
           <button @click="removeSlot(dIndex, sIndex)">Remove</button>
         </div>
       </div>
@@ -263,11 +263,10 @@ new Vue({
       const ns = this.newSlot[dayIndex];
       const [hh, mm] = ns.start.split(':').map(Number);
       const startMinutes = hh*60 + mm;
-      let mask = (1 << ns.relay);   // exactly one relay
       this.schedule[dayIndex].push({
         startMinutes,
         durationMinutes: ns.duration,
-        relayMask: mask
+        relay: ns.relay
       });
     },
     removeSlot(dayIndex, slotIndex) {
@@ -278,10 +277,8 @@ new Vue({
       const mm = m%60;
       return ('0'+h).slice(-2)+':'+('0'+mm).slice(-2);
     },
-    relayMaskToText(mask) {
-      const arr = [];
-      for (let i=0;i<4;i++) if (mask & (1<<i)) arr.push(i+1);
-      return arr.length ? arr.join(',') : 'none';
+    relayToText(relay) {
+      return relay >= 0 && relay < 4 ? `Relay ${relay + 1}` : 'none';
     },
     fetchTime() {
       fetch('/api/time').then(r=>r.json()).then(j=>{
