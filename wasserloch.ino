@@ -9,7 +9,7 @@
 
 // Relay pins (adapt to your board)
 const uint8_t RELAY_PINS[4] = {5, 4, 0, 2}; // D1, D2, D3, D4
-static uint8_t lastOpenRelay = 0xFF; // all closed. Enforced in setup function
+static uint8_t lastOpenRelay = 0xFF;        // all closed. Enforced in setup function
 
 ESP8266WebServer server(80);
 
@@ -301,33 +301,33 @@ new Vue({
      * Add a new slot, but only if it doesn't overlap existing ones.
      */
     addSlot(dayIndex) {
-    const ns = this.newSlot[dayIndex];
-    const [hh, mm] = ns.start.split(':').map(Number);
-    const startMinutes = hh * 60 + mm;
-    const duration     = ns.duration;
+        const ns = this.newSlot[dayIndex];
+        const [hh, mm] = ns.start.split(':').map(Number);
+        const startMinutes = hh * 60 + mm;
+        const duration     = ns.duration;
 
-    // Check against existing slots
-    for (let i = 0; i < this.schedule[dayIndex].length; i++) {
-        const existing = this.schedule[dayIndex][i];
-        const existingEnd = existing.startMinutes + existing.durationMinutes;
-        if (startMinutes < existingEnd && existing.startMinutes < startMinutes + duration) {
-            alert(`Cannot add slot: overlaps with "${this.minutesToHHMM(existing.startMinutes)} – ${this.minutesToHHMM(existingEnd)}" (Relay ${existing.relay + 1})`);
-          return;  // abort
+        // Check against existing slots
+        for (let i = 0; i < this.schedule[dayIndex].length; i++) {
+            const existing = this.schedule[dayIndex][i];
+            const existingEnd = existing.startMinutes + existing.durationMinutes;
+            if (startMinutes < existingEnd && existing.startMinutes < startMinutes + duration) {
+                alert(`Cannot add slot: overlaps with "${this.minutesToHHMM(existing.startMinutes)} – ${this.minutesToHHMM(existingEnd)}" (Relay ${existing.relay + 1})`);
+              return;  // abort
+            }
         }
-    }
 
-    // Check against other new (unsaved) slots on same day
-    for (let i = 0; i < this.schedule[dayIndex].length; i++) {
-        const existing = this.schedule[dayIndex][i];
-        // already checked above — new slots are only in the push below
-    }
+        // Check against other new (unsaved) slots on same day
+        for (let i = 0; i < this.schedule[dayIndex].length; i++) {
+            const existing = this.schedule[dayIndex][i];
+            // already checked above — new slots are only in the push below
+        }
 
-    this.schedule[dayIndex].push({
-        startMinutes,
-        durationMinutes: duration,
-        relay: ns.relay
-    });
-},
+        this.schedule[dayIndex].push({
+            startMinutes,
+            durationMinutes: duration,
+            relay: ns.relay
+        });
+    },
     removeSlot(dayIndex, slotIndex) {
       this.schedule[dayIndex].splice(slotIndex, 1);
     },
@@ -407,6 +407,19 @@ void handleGetSchedule()
   server.send(200, "application/json", out);
 }
 
+bool hasOverlap(int day, const Slot *slots, uint8_t count) {
+    for (int i = 0; i < count; i++) {
+        uint16_t startA = slots[i].startMinutes;
+        uint16_t endA   = startA + slots[i].durationMinutes;
+        for (int j = i + 1; j < count; j++) {
+            uint16_t startB = slots[j].startMinutes;
+            uint16_t endB   = startB + slots[j].durationMinutes;
+            if (startA < endB && startB < endA) return true;
+        }
+    }
+    return false;
+}
+
 void handlePostSchedule()
 {
   if (!server.hasArg("plain"))
@@ -414,6 +427,7 @@ void handlePostSchedule()
     server.send(400, "text/plain", "No body");
     return;
   }
+
   DynamicJsonDocument doc(4096);
   DeserializationError err = deserializeJson(doc, server.arg("plain"));
   if (err || !doc.is<JsonArray>())
@@ -421,6 +435,7 @@ void handlePostSchedule()
     server.send(400, "text/plain", "JSON error");
     return;
   }
+
   JsonArray days = doc.as<JsonArray>();
   for (int d = 0; d < 7 && d < (int)days.size(); d++)
   {
@@ -437,6 +452,17 @@ void handlePostSchedule()
     }
     slotsCount[d] = count;
   }
+
+  // Reject if any day has overlapping slots
+  for (int d = 0; d < 7; d++)
+  {
+    if (hasOverlap(d, schedule[d], slotsCount[d]))
+    {
+      server.send(409, "text/plain", "Overlapping slots detected");
+      return;
+    }
+  }
+
   saveSchedule();
   server.send(200, "text/plain", "OK");
 }
@@ -477,30 +503,34 @@ void handlePostTime()
 
 void updateRelays()
 {
-    time_t now = time(nullptr);
-    if (now < 100000)
-      return; // invalid time
+  time_t now = time(nullptr);
+  if (now < 100000)
+    return; // invalid time
 
-    struct tm *tmNow = localtime(&now);
-    int wday = tmNow->tm_wday; // 0=Sunday
-    int minutes = tmNow->tm_hour * 60 + tmNow->tm_min;
+  struct tm *tmNow = localtime(&now);
+  int wday = tmNow->tm_wday; // 0=Sunday
+  int minutes = tmNow->tm_hour * 60 + tmNow->tm_min;
 
-    uint8_t activeRelay = 0;
+  uint8_t activeRelay = 0;
 
-    for (int i = 0; i < slotsCount[wday]; i++) {
-        Slot &s = schedule[wday][i];
-        if (minutes >= s.startMinutes &&
-            minutes < s.startMinutes + s.durationMinutes) {
-            activeRelay |= (1 << s.relay);
-        }
+  for (int i = 0; i < slotsCount[wday]; i++)
+  {
+    Slot &s = schedule[wday][i];
+    if (minutes >= s.startMinutes &&
+        minutes < s.startMinutes + s.durationMinutes)
+    {
+      activeRelay |= (1 << s.relay);
     }
-    if (activeRelay == lastOpenRelay) return; // no change
-    lastOpenRelay = activeRelay;
+  }
+  if (activeRelay == lastOpenRelay)
+    return; // no change
+  lastOpenRelay = activeRelay;
 
-    for (int r = 0; r < 4; r++) {
-        bool on = (activeRelay & (1 << r));
-        digitalWrite(RELAY_PINS[r], on ? LOW : HIGH);
-    }
+  for (int r = 0; r < 4; r++)
+  {
+    bool on = (activeRelay & (1 << r));
+    digitalWrite(RELAY_PINS[r], on ? LOW : HIGH);
+  }
 }
 
 // ---------- Setup & Loop ----------
