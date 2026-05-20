@@ -151,6 +151,13 @@ void handleRoot()
     input, select { width: 100%; max-width: 200px; }
     .slots { margin-top:0.5rem; }
     .slot { border:1px solid #ddd; padding:0.25rem; margin:0.25rem 0; }
+    .slot-overlap::before {
+        content: "⚠ Overlaps with another slot";
+        display: block;
+        font-size: 0.85em;
+        color: #d32f2f;
+        margin-bottom: 0.25rem;
+    }
     button { margin-top:0.5rem; }
   </style>
 </head>
@@ -259,19 +266,6 @@ new Vue({
         body: JSON.stringify(this.schedule)
       }).then(()=>{ alert('Schedule saved'); });
     },
-    addSlot(dayIndex) {
-      const ns = this.newSlot[dayIndex];
-      const [hh, mm] = ns.start.split(':').map(Number);
-      const startMinutes = hh*60 + mm;
-      this.schedule[dayIndex].push({
-        startMinutes,
-        durationMinutes: ns.duration,
-        relay: ns.relay
-      });
-    },
-    removeSlot(dayIndex, slotIndex) {
-      this.schedule[dayIndex].splice(slotIndex, 1);
-    },
     minutesToHHMM(m) {
       const h = Math.floor(m/60);
       const mm = m%60;
@@ -279,6 +273,60 @@ new Vue({
     },
     relayToText(relay) {
       return relay >= 0 && relay < 4 ? `Relay ${relay + 1}` : 'none';
+    },
+    /**
+     * Returns true if slot at slotIndex overlaps any other slot
+     * on the same day.
+     */
+    hasOverlap(dayIndex, slotIndex) {
+      const target = this.schedule[dayIndex][slotIndex];
+      if (!target) return false;
+      const targetStart = target.startMinutes;
+      const targetEnd   = target.startMinutes + target.durationMinutes;
+      const day = this.schedule[dayIndex];
+      for (let i = 0; i < day.length; i++) {
+        if (i === slotIndex) continue;
+        const other = day[i];
+        const otherStart = other.startMinutes;
+        const otherEnd   = other.startMinutes + other.durationMinutes;
+        // Two intervals overlap iff one starts before the other ends
+        if (targetStart < otherEnd && otherStart < targetEnd) {
+          return true;
+        }
+      }
+      return false;
+    },
+    /**
+     * Add a new slot, but only if it doesn't overlap existing ones.
+     */
+    addSlot(dayIndex) {
+      const ns = this.newSlot[dayIndex];
+      const [hh, mm] = ns.start.split(':').map(Number);
+      const startMinutes = hh * 60 + mm;
+      const duration     = ns.duration;
+
+      // --- overlap check against existing slots ---
+      for (let i = 0; i < this.schedule[dayIndex].length; i++) {
+        const existing = this.schedule[dayIndex][i];
+        const existingEnd = existing.startMinutes + existing.durationMinutes;
+        if (startMinutes < existingEnd && existing.startMinutes < startMinutes + duration) {
+          alert(
+            `Cannot add slot: overlaps with ` +
+            `"${this.minutesToHHMM(existing.startMinutes)} – ${this.minutesToHHMM(existingEnd)}"` +
+            ` (Relay ${existing.relay + 1})`
+          );
+          return;  // abort
+        }
+      }
+
+      this.schedule[dayIndex].push({
+        startMinutes,
+        durationMinutes: duration,
+        relay: ns.relay
+      });
+    },
+    removeSlot(dayIndex, slotIndex) {
+      this.schedule[dayIndex].splice(slotIndex, 1);
     },
     fetchTime() {
       fetch('/api/time').then(r=>r.json()).then(j=>{
