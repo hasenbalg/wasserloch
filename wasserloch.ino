@@ -311,15 +311,8 @@ new Vue({
             const existing = this.schedule[dayIndex][i];
             const existingEnd = existing.startMinutes + existing.durationMinutes;
             if (startMinutes < existingEnd && existing.startMinutes < startMinutes + duration) {
-                alert(`Cannot add slot: overlaps with "${this.minutesToHHMM(existing.startMinutes)} – ${this.minutesToHHMM(existingEnd)}" (Relay ${existing.relay + 1})`);
-              return;  // abort
+              alert(`Cannot add slot: overlaps with "${this.minutesToHHMM(existing.startMinutes)} – ${this.minutesToHHMM(existingEnd)}" (Relay ${existing.relay + 1})`);              return;  // abort
             }
-        }
-
-        // Check against other new (unsaved) slots on same day
-        for (let i = 0; i < this.schedule[dayIndex].length; i++) {
-            const existing = this.schedule[dayIndex][i];
-            // already checked above — new slots are only in the push below
         }
 
         this.schedule[dayIndex].push({
